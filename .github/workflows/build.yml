@@ -1,0 +1,62 @@
+name: Build VST3
+
+# Builds the plugin for Windows, macOS and Linux on GitHub's servers.
+# Runs on every push, and can also be started by hand from the "Actions" tab.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            artifact: RidgelineDrums-Windows-VST3
+          - name: macOS
+            os: macos-latest
+            artifact: RidgelineDrums-macOS-VST3
+          - name: Linux
+            os: ubuntu-latest
+            artifact: RidgelineDrums-Linux-VST3
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libfreetype-dev libx11-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev libfontconfig1-dev \
+            libcurl4-openssl-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'macOS' && '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"' || '' }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run the engine test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Collect the plugin
+        shell: bash
+        run: |
+          mkdir -p dist
+          find build -type d -name "*.vst3" -prune -exec cp -R {} dist/ \;
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/ 2>/dev/null || true
+          ls -R dist | head -40
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+          if-no-files-found: error
